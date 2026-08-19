@@ -2,8 +2,11 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"github.com/StarkXiao/webhook-replay-service/internal/domain"
+	"github.com/StarkXiao/webhook-replay-service/internal/repository"
 	"github.com/StarkXiao/webhook-replay-service/internal/service"
+	"github.com/StarkXiao/webhook-replay-service/internal/validator"
 	"io"
 	"net/http"
 	"strconv"
@@ -28,7 +31,16 @@ func (h *Handler) Webhooks(w http.ResponseWriter, r *http.Request) {
 	}
 	e, err := h.S.Receive(r.Context(), service.ReceiveInput{Body: b, EventType: r.Header.Get("X-Event-Type"), Source: r.Header.Get("X-Source"), TargetURL: r.Header.Get("X-Target-URL"), IdempotencyKey: r.Header.Get("X-Idempotency-Key")})
 	if err != nil {
-		write(w, 400, map[string]string{"error": err.Error()})
+		status := http.StatusInternalServerError
+		if errors.Is(err, repository.ErrDuplicate) {
+			status = http.StatusConflict
+		} else {
+			var validationErr validator.Errors
+			if errors.As(err, &validationErr) {
+				status = http.StatusBadRequest
+			}
+		}
+		write(w, status, map[string]string{"error": err.Error()})
 		return
 	}
 	write(w, 201, e)
