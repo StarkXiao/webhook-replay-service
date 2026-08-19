@@ -188,13 +188,32 @@ func (m *Memory) UpdateTask(_ context.Context, t *domain.DeliveryTask) error {
 func (m *Memory) AddAttempt(_ context.Context, a *domain.DeliveryAttempt) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.attempts[a.TaskID] = append(m.attempts[a.TaskID], *a)
+	m.attempts[a.TaskID] = append(m.attempts[a.TaskID], cloneAttempt(a))
 	return nil
 }
 func (m *Memory) Attempts(_ context.Context, i string) ([]domain.DeliveryAttempt, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.attempts[i], nil
+	return cloneAttempts(m.attempts[i]), nil
+}
+
+// cloneAttempt keeps repository-owned attempt records independent from callers.
+func cloneAttempt(a *domain.DeliveryAttempt) domain.DeliveryAttempt {
+	if a == nil {
+		return domain.DeliveryAttempt{}
+	}
+	return *a
+}
+
+func cloneAttempts(attempts []domain.DeliveryAttempt) []domain.DeliveryAttempt {
+	if attempts == nil {
+		return nil
+	}
+	out := make([]domain.DeliveryAttempt, len(attempts))
+	for i := range attempts {
+		out[i] = cloneAttempt(&attempts[i])
+	}
+	return out
 }
 func (m *Memory) AddDeadLetter(_ context.Context, d *domain.DeadLetter) error {
 	m.mu.Lock()
