@@ -133,10 +133,15 @@ type Gate struct {
 
 func NewGate() *Gate { return &Gate{active: map[string]time.Time{}} }
 func (g *Gate) Acquire(key string, ttl time.Duration) bool {
-	if until, ok := g.active[key]; ok && until.After(time.Now()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	// The lookup, expiry check, and update form one atomic gate operation.
+	now := time.Now()
+	if until, ok := g.active[key]; ok && until.After(now) {
 		return false
 	}
-	g.active[key] = time.Now().Add(ttl)
+	g.active[key] = now.Add(ttl)
 	return true
 }
 func (g *Gate) Release(key string) { g.mu.Lock(); defer g.mu.Unlock(); delete(g.active, key) }
