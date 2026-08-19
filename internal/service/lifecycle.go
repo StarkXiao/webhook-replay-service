@@ -133,8 +133,6 @@ type Gate struct {
 
 func NewGate() *Gate { return &Gate{active: map[string]time.Time{}} }
 func (g *Gate) Acquire(key string, ttl time.Duration) bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
 	if until, ok := g.active[key]; ok && until.After(time.Now()) {
 		return false
 	}
