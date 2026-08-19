@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/StarkXiao/webhook-replay-service/internal/domain"
 	"github.com/StarkXiao/webhook-replay-service/internal/repository"
+	"github.com/StarkXiao/webhook-replay-service/internal/retry"
 	"github.com/StarkXiao/webhook-replay-service/internal/validator"
 	"github.com/StarkXiao/webhook-replay-service/pkg/clock"
 	"github.com/StarkXiao/webhook-replay-service/pkg/id"
@@ -14,9 +15,10 @@ import (
 )
 
 type Service struct {
-	Repo       repository.Repository
-	Clock      clock.Clock
-	MaxRetries int
+	Repo        repository.Repository
+	Clock       clock.Clock
+	MaxRetries  int
+	RetryPolicy retry.Policy
 }
 type ReceiveInput struct {
 	Headers                                      map[string]string
@@ -140,12 +142,15 @@ func (s *Service) Deliver(ctx context.Context, t *domain.DeliveryTask) error {
 		persistCtx = context.Background()
 		a.Error = contextErr.Error()
 		t.Error = a.Error
+		t.Status = domain.Failed
+		err = contextErr
 	}
 	if err := s.Repo.AddAttempt(persistCtx, a); err != nil {
 		return err
 	}
 	t.Attempt++
-	if err != nil || t.Status == domain.Failed {
+	decision := retry.DefaultClassifier().Classify(a.StatusCode, err, s.deliveryRetryPolicy(), t.Attempt)
+	if decision.Retry {
 		maxRetries := s.MaxRetries
 		if maxRetries <= 0 {
 			maxRetries = 1
@@ -154,7 +159,8 @@ func (s *Service) Deliver(ctx context.Context, t *domain.DeliveryTask) error {
 			t.Status = domain.DeadLetterStatus
 		} else {
 			t.Status = domain.Retrying
-			t.ScheduledAt = s.Clock.Now().Add(time.Second)
+			t.ScheduledAt = s.Clock.Now().Add(decision.Delay)
+			e.RetryCount++
 		}
 	}
 	t.UpdatedAt = s.Clock.Now()
@@ -180,4 +186,15 @@ func (s *Service) Deliver(ctx context.Context, t *domain.DeliveryTask) error {
 		return contextErr
 	}
 	return nil
+}
+
+func (s *Service) deliveryRetryPolicy() retry.Policy {
+	p := s.RetryPolicy
+	if p.Initial <= 0 {
+		p.Initial = time.Second
+	}
+	if p.Max < p.Initial {
+		p.Max = 5 * time.Minute
+	}
+	return p
 }

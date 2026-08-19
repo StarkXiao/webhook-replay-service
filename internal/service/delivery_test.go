@@ -78,6 +78,38 @@ func TestDeliverCancellationReschedulesTask(t *testing.T) {
 	}
 }
 
+func TestDeliverDoesNotRetryPermanentHTTPFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "bad request", http.StatusBadRequest) }))
+	defer server.Close()
+	repo := repository.NewMemory()
+	s := &Service{Repo: repo, Clock: clock.Real{}, MaxRetries: 3}
+	e, err := s.Receive(context.Background(), ReceiveInput{Body: []byte(`{"ok":true}`), EventType: "test", Source: "source", TargetURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.Schedule(context.Background(), e.ID, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Deliver(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+	storedTask, err := repo.GetTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedTask.Status != domain.Failed {
+		t.Fatalf("task status = %s, want failed", storedTask.Status)
+	}
+	storedEvent, err := repo.GetEvent(context.Background(), e.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedEvent.RetryCount != 0 {
+		t.Fatalf("retry count = %d, want 0", storedEvent.RetryCount)
+	}
+}
+
 func TestDiscardDeadLetterPersists(t *testing.T) {
 	repo := repository.NewMemory()
 	d := &domain.DeadLetter{ID: "dl-1", EventID: "event-1"}

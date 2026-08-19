@@ -6,6 +6,7 @@ import (
 	"github.com/StarkXiao/webhook-replay-service/internal/handler"
 	"github.com/StarkXiao/webhook-replay-service/internal/middleware"
 	"github.com/StarkXiao/webhook-replay-service/internal/repository"
+	"github.com/StarkXiao/webhook-replay-service/internal/retry"
 	"github.com/StarkXiao/webhook-replay-service/internal/scheduler"
 	"github.com/StarkXiao/webhook-replay-service/internal/service"
 	"github.com/StarkXiao/webhook-replay-service/internal/worker"
@@ -25,7 +26,7 @@ func main() {
 		log.Fatal("invalid configuration: " + err.Error())
 	}
 	repo := repository.NewMemory()
-	s := &service.Service{Repo: repo, Clock: clock.Real{}, MaxRetries: c.MaxRetries}
+	s := &service.Service{Repo: repo, Clock: clock.Real{}, MaxRetries: c.MaxRetries, RetryPolicy: retry.Policy{Initial: c.InitialBackoff, Max: c.MaxBackoff}}
 	h := handler.New(s)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/StarkXiao/webhook-replay-service/internal/domain"
 	"github.com/StarkXiao/webhook-replay-service/internal/service"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,7 +21,8 @@ func write(w http.ResponseWriter, status int, v any) {
 }
 func (h *Handler) Webhooks(w http.ResponseWriter, r *http.Request) {
 	var b json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&b); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
 		write(w, 400, map[string]string{"error": "invalid JSON"})
 		return
 	}
@@ -60,7 +62,8 @@ func (h *Handler) Schedule(w http.ResponseWriter, r *http.Request) {
 		DelaySeconds int       `json:"delay_seconds"`
 	}
 	if r.Body != nil && r.ContentLength != 0 {
-		if err := json.NewDecoder(r.Body).Decode(&x); err != nil {
+		decoder := json.NewDecoder(r.Body)
+		if err := decoder.Decode(&x); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
 			write(w, http.StatusBadRequest, map[string]string{"error": "invalid schedule JSON"})
 			return
 		}

@@ -39,10 +39,20 @@ func (r Recovery) Recover(ctx context.Context) error {
 	}
 	for _, task := range tasks {
 		if task.Status == domain.Delivering {
+			event, err := r.Repo.GetEvent(ctx, task.EventID)
+			if err != nil {
+				return err
+			}
 			task.Status = domain.Retrying
 			task.ScheduledAt = now
 			task.Error = "recovered after delivery timeout"
 			if err := r.Repo.UpdateTask(ctx, &task); err != nil {
+				return err
+			}
+			event.Status = domain.Retrying
+			event.LastError = task.Error
+			event.UpdatedAt = now
+			if err := r.Repo.UpdateEvent(ctx, event); err != nil {
 				return err
 			}
 		}
