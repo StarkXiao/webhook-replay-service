@@ -36,7 +36,7 @@ func (s *Service) Receive(ctx context.Context, in ReceiveInput) (*domain.Webhook
 	now := s.Clock.Now()
 	e := &domain.WebhookEvent{ID: id.New(), Headers: in.Headers, Body: in.Body, EventType: in.EventType, Source: in.Source, TargetURL: in.TargetURL, IdempotencyKey: in.IdempotencyKey, Status: domain.Pending, MaxRetries: s.MaxRetries, ReceivedAt: now, CreatedAt: now, UpdatedAt: now}
 	if err := s.Repo.CreateEvent(ctx, e); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create event: %v", err)
 	}
 	return e, nil
 }
