@@ -2,17 +2,21 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"github.com/StarkXiao/webhook-replay-service/internal/config"
 	"github.com/StarkXiao/webhook-replay-service/internal/handler"
 	"github.com/StarkXiao/webhook-replay-service/internal/middleware"
 	"github.com/StarkXiao/webhook-replay-service/internal/repository"
+	"github.com/StarkXiao/webhook-replay-service/internal/scheduler"
 	"github.com/StarkXiao/webhook-replay-service/internal/service"
+	"github.com/StarkXiao/webhook-replay-service/internal/worker"
 	"github.com/StarkXiao/webhook-replay-service/pkg/clock"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 func main() {
@@ -53,13 +57,25 @@ func main() {
 		handler = middleware.NewLimiter(c.RatePerSecond).Middleware(handler)
 	}
 	srv := &http.Server{Addr: ":" + c.Port, Handler: handler}
+	pool := worker.New(s, c.WorkerCount)
+	runner := &scheduler.Scheduler{Repo: repo, Pool: pool, Every: time.Second}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go runner.Run(ctx)
 	slog.Info("server starting", "addr", srv.Addr)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
+	serverErr := make(chan error, 1)
+	go func() { serverErr <- srv.ListenAndServe() }()
+	select {
+	case err := <-serverErr:
+		if err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
 	}
-	_ = context.Background()
-	_ = fmt.Sprintf
-	_ = os.Getenv
+	pool.Close()
 }
 func stringsHas(s, x string) bool         { return len(s) >= len(x) && s[len(s)-len(x):] == x }
 func writeNotFound(w http.ResponseWriter) { http.Error(w, "not found", 404) }

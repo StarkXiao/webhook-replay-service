@@ -14,6 +14,9 @@ type Scheduler struct {
 }
 
 func (s *Scheduler) Run(ctx context.Context) {
+	if s.Every <= 0 {
+		s.Every = time.Second
+	}
 	t := time.NewTicker(s.Every)
 	defer t.Stop()
 	for {
@@ -21,7 +24,10 @@ func (s *Scheduler) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case now := <-t.C:
-			tasks, _ := s.Repo.ListDueTasks(ctx, now)
+			tasks, err := s.Repo.ListDueTasks(ctx, now)
+			if err != nil {
+				continue
+			}
 			for _, task := range tasks {
 				s.Pool.Submit(task)
 			}

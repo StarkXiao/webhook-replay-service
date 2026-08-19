@@ -120,6 +120,9 @@ func (l Lifecycle) DiscardDeadLetter(ctx context.Context, id string) error {
 	}
 	d.Discard()
 	d.UpdatedAt = l.Clock.Now()
+	if err := l.Repo.UpdateDeadLetter(ctx, d); err != nil {
+		return err
+	}
 	return l.Repo.AddAudit(ctx, &domain.AuditLog{ID: "audit-" + id, Action: "dead_letter.discarded", EntityType: "dead_letter", EntityID: id, CreatedAt: l.Clock.Now()})
 }
 

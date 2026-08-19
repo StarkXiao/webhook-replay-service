@@ -14,6 +14,9 @@ type Pool struct {
 }
 
 func New(s *service.Service, n int) *Pool {
+	if n < 1 {
+		n = 1
+	}
 	p := &Pool{S: s, Jobs: make(chan domain.DeliveryTask, n*2)}
 	for i := 0; i < n; i++ {
 		p.wg.Add(1)
@@ -29,5 +32,7 @@ func (p *Pool) loop() {
 		cancel()
 	}
 }
-func (p *Pool) Submit(t domain.DeliveryTask) { p.Jobs <- t }
-func (p *Pool) Close()                       { close(p.Jobs); p.wg.Wait() }
+func (p *Pool) Submit(t domain.DeliveryTask) {
+	p.Jobs <- t
+}
+func (p *Pool) Close() { close(p.Jobs); p.wg.Wait() }

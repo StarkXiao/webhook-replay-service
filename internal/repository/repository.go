@@ -20,12 +20,14 @@ type Repository interface {
 	GetTask(context.Context, string) (*domain.DeliveryTask, error)
 	ClaimTask(context.Context, string, time.Time) (*domain.DeliveryTask, error)
 	ListDueTasks(context.Context, time.Time) ([]domain.DeliveryTask, error)
+	ListStaleTasks(context.Context, time.Time) ([]domain.DeliveryTask, error)
 	UpdateEvent(context.Context, *domain.WebhookEvent) error
 	UpdateTask(context.Context, *domain.DeliveryTask) error
 	AddAttempt(context.Context, *domain.DeliveryAttempt) error
 	Attempts(context.Context, string) ([]domain.DeliveryAttempt, error)
 	AddDeadLetter(context.Context, *domain.DeadLetter) error
 	GetDeadLetter(context.Context, string) (*domain.DeadLetter, error)
+	UpdateDeadLetter(context.Context, *domain.DeadLetter) error
 	ListDeadLetters(context.Context) ([]domain.DeadLetter, error)
 	AddAudit(context.Context, *domain.AuditLog) error
 }
@@ -154,6 +156,17 @@ func (m *Memory) ListDueTasks(_ context.Context, n time.Time) ([]domain.Delivery
 	}
 	return o, nil
 }
+func (m *Memory) ListStaleTasks(_ context.Context, before time.Time) ([]domain.DeliveryTask, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := []domain.DeliveryTask{}
+	for _, t := range m.tasks {
+		if t.Status == domain.Delivering && t.UpdatedAt.Before(before) {
+			out = append(out, *cloneTask(t))
+		}
+	}
+	return out, nil
+}
 func (m *Memory) UpdateEvent(_ context.Context, e *domain.WebhookEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -201,6 +214,17 @@ func (m *Memory) GetDeadLetter(_ context.Context, i string) (*domain.DeadLetter,
 	x := *d
 	x.Attempts = append([]domain.DeliveryAttempt(nil), d.Attempts...)
 	return &x, nil
+}
+func (m *Memory) UpdateDeadLetter(_ context.Context, d *domain.DeadLetter) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.dead[d.ID]; !ok {
+		return ErrNotFound
+	}
+	x := *d
+	x.Attempts = append([]domain.DeliveryAttempt(nil), d.Attempts...)
+	m.dead[d.ID] = &x
+	return nil
 }
 func (m *Memory) ListDeadLetters(_ context.Context) ([]domain.DeadLetter, error) {
 	m.mu.RLock()

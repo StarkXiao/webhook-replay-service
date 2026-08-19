@@ -1,15 +1,22 @@
 package handler
 
 import (
-	"github.com/StarkXiao/webhook-replay-service/internal/domain"
 	"net/http"
 )
 
 func (h *Handler) Statistics(w http.ResponseWriter, r *http.Request) {
-	_, total, _ := h.S.Events(r.Context(), domain.EventFilter{Limit: 1})
-	write(w, 200, map[string]int{"events": total})
+	stats, err := h.S.Statistics(r.Context())
+	if err != nil {
+		write(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	write(w, http.StatusOK, stats.Map())
 }
 func (h *Handler) DeadLetters(w http.ResponseWriter, r *http.Request) {
-	d, _ := h.S.Repo.ListDeadLetters(r.Context())
+	d, err := h.S.Repo.ListDeadLetters(r.Context())
+	if err != nil {
+		write(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	write(w, 200, d)
 }

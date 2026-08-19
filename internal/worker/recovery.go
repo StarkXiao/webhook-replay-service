@@ -13,14 +13,18 @@ type Recovery struct {
 }
 
 func (r Recovery) Recover(ctx context.Context) error {
-	tasks, err := r.Repo.ListDueTasks(ctx, time.Now().UTC())
+	if r.Timeout <= 0 {
+		r.Timeout = time.Minute
+	}
+	now := time.Now().UTC()
+	tasks, err := r.Repo.ListStaleTasks(ctx, now.Add(-r.Timeout))
 	if err != nil {
 		return err
 	}
 	for _, task := range tasks {
-		if task.Status == domain.Delivering && time.Since(task.UpdatedAt) > r.Timeout {
+		if task.Status == domain.Delivering {
 			task.Status = domain.Retrying
-			task.ScheduledAt = time.Now().UTC()
+			task.ScheduledAt = now
 			task.Error = "recovered after delivery timeout"
 			if err := r.Repo.UpdateTask(ctx, &task); err != nil {
 				return err

@@ -123,21 +123,36 @@ func (s *Service) Deliver(ctx context.Context, t *domain.DeliveryTask) error {
 	if err != nil {
 		a.Error = err.Error()
 		t.Error = err.Error()
-		t.Status = domain.Failed
 	} else {
 		a.StatusCode = resp.StatusCode
 		_ = resp.Body.Close()
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			t.Status = domain.Success
+			t.Error = ""
 		} else {
 			t.Status = domain.Failed
 			t.Error = fmt.Sprintf("status %d", resp.StatusCode)
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := s.Repo.AddAttempt(ctx, a); err != nil {
 		return err
 	}
 	t.Attempt++
+	if err != nil || t.Status == domain.Failed {
+		maxRetries := s.MaxRetries
+		if maxRetries <= 0 {
+			maxRetries = 1
+		}
+		if t.Attempt >= maxRetries {
+			t.Status = domain.DeadLetterStatus
+		} else {
+			t.Status = domain.Retrying
+			t.ScheduledAt = s.Clock.Now().Add(time.Second)
+		}
+	}
 	t.UpdatedAt = s.Clock.Now()
 	if err := s.Repo.UpdateTask(ctx, t); err != nil {
 		return err
@@ -145,5 +160,15 @@ func (s *Service) Deliver(ctx context.Context, t *domain.DeliveryTask) error {
 	e.Status = t.Status
 	e.LastError = t.Error
 	e.UpdatedAt = t.UpdatedAt
-	return s.Repo.UpdateEvent(ctx, e)
+	if err := s.Repo.UpdateEvent(ctx, e); err != nil {
+		return err
+	}
+	if t.Status == domain.DeadLetterStatus {
+		attempts, err := s.Repo.Attempts(ctx, t.ID)
+		if err != nil {
+			return err
+		}
+		return s.Repo.AddDeadLetter(ctx, &domain.DeadLetter{ID: id.New(), EventID: e.ID, Reason: t.Error, Attempts: attempts, CreatedAt: t.UpdatedAt, UpdatedAt: t.UpdatedAt})
+	}
+	return nil
 }

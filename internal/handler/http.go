@@ -35,7 +35,11 @@ func (h *Handler) Events(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
-	e, total, _ := h.S.Events(r.Context(), domain.EventFilter{EventType: q.Get("event_type"), Source: q.Get("source"), Status: q.Get("status"), TargetURL: q.Get("target_url"), Keyword: q.Get("keyword"), Limit: limit, Offset: offset})
+	e, total, err := h.S.Events(r.Context(), domain.EventFilter{EventType: q.Get("event_type"), Source: q.Get("source"), Status: q.Get("status"), TargetURL: q.Get("target_url"), Keyword: q.Get("keyword"), Limit: limit, Offset: offset})
+	if err != nil {
+		write(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	write(w, 200, map[string]any{"items": e, "pagination": map[string]int{"limit": limit, "offset": offset, "total": total}})
 }
 func (h *Handler) Event(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +59,12 @@ func (h *Handler) Schedule(w http.ResponseWriter, r *http.Request) {
 		At           time.Time `json:"at"`
 		DelaySeconds int       `json:"delay_seconds"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&x)
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&x); err != nil {
+			write(w, http.StatusBadRequest, map[string]string{"error": "invalid schedule JSON"})
+			return
+		}
+	}
 	if x.At.IsZero() {
 		x.At = time.Now().UTC().Add(time.Duration(x.DelaySeconds) * time.Second)
 	}
