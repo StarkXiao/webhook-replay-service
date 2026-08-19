@@ -28,7 +28,8 @@ func (h *Handler) Webhooks(w http.ResponseWriter, r *http.Request) {
 	}
 	e, err := h.S.Receive(r.Context(), service.ReceiveInput{Body: b, EventType: r.Header.Get("X-Event-Type"), Source: r.Header.Get("X-Source"), TargetURL: r.Header.Get("X-Target-URL"), IdempotencyKey: r.Header.Get("X-Idempotency-Key")})
 	if err != nil {
-		write(w, 400, map[string]string{"error": err.Error()})
+		status, code := classifyReceiveError(err)
+		fail(w, r, status, code, err.Error())
 		return
 	}
 	write(w, 201, e)
