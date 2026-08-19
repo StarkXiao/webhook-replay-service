@@ -1,0 +1,15 @@
+# Go build and test artifacts
+*.exe
+*.test
+*.out
+/server
+/coverage.out
+
+# Local environment files
+.env
+.env.*
+
+# OS/editor metadata
+.DS_Store
+.idea/
+.vscode/
