@@ -61,7 +61,13 @@ func main() {
 	runner := &scheduler.Scheduler{Repo: repo, Pool: pool, Every: time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go runner.Run(ctx)
+	schedulerDone := make(chan struct{})
+	go func() { defer close(schedulerDone); runner.Run(ctx) }()
+	recoveryDone := make(chan struct{})
+	go func() {
+		defer close(recoveryDone)
+		(worker.Recovery{Repo: repo, Timeout: 30 * time.Second}).Run(ctx, time.Second)
+	}()
 	slog.Info("server starting", "addr", srv.Addr)
 	serverErr := make(chan error, 1)
 	go func() { serverErr <- srv.ListenAndServe() }()
@@ -75,6 +81,8 @@ func main() {
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}
+	<-schedulerDone
+	<-recoveryDone
 	pool.Close()
 }
 func stringsHas(s, x string) bool         { return len(s) >= len(x) && s[len(s)-len(x):] == x }

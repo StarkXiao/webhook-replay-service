@@ -12,6 +12,22 @@ type Recovery struct {
 	Timeout time.Duration
 }
 
+func (r Recovery) Run(ctx context.Context, every time.Duration) {
+	if every <= 0 {
+		every = time.Second
+	}
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_ = r.Recover(ctx)
+		}
+	}
+}
+
 func (r Recovery) Recover(ctx context.Context) error {
 	if r.Timeout <= 0 {
 		r.Timeout = time.Minute

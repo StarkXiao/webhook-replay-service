@@ -29,7 +29,9 @@ func (s *Scheduler) Run(ctx context.Context) {
 				continue
 			}
 			for _, task := range tasks {
-				s.Pool.Submit(task)
+				if !s.Pool.Submit(ctx, task) {
+					return
+				}
 			}
 		}
 	}

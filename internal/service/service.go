@@ -134,10 +134,14 @@ func (s *Service) Deliver(ctx context.Context, t *domain.DeliveryTask) error {
 			t.Error = fmt.Sprintf("status %d", resp.StatusCode)
 		}
 	}
-	if err := ctx.Err(); err != nil {
-		return err
+	persistCtx := ctx
+	contextErr := ctx.Err()
+	if contextErr != nil {
+		persistCtx = context.Background()
+		a.Error = contextErr.Error()
+		t.Error = a.Error
 	}
-	if err := s.Repo.AddAttempt(ctx, a); err != nil {
+	if err := s.Repo.AddAttempt(persistCtx, a); err != nil {
 		return err
 	}
 	t.Attempt++
@@ -154,21 +158,26 @@ func (s *Service) Deliver(ctx context.Context, t *domain.DeliveryTask) error {
 		}
 	}
 	t.UpdatedAt = s.Clock.Now()
-	if err := s.Repo.UpdateTask(ctx, t); err != nil {
+	if err := s.Repo.UpdateTask(persistCtx, t); err != nil {
 		return err
 	}
 	e.Status = t.Status
 	e.LastError = t.Error
 	e.UpdatedAt = t.UpdatedAt
-	if err := s.Repo.UpdateEvent(ctx, e); err != nil {
+	if err := s.Repo.UpdateEvent(persistCtx, e); err != nil {
 		return err
 	}
 	if t.Status == domain.DeadLetterStatus {
-		attempts, err := s.Repo.Attempts(ctx, t.ID)
+		attempts, err := s.Repo.Attempts(persistCtx, t.ID)
 		if err != nil {
 			return err
 		}
-		return s.Repo.AddDeadLetter(ctx, &domain.DeadLetter{ID: id.New(), EventID: e.ID, Reason: t.Error, Attempts: attempts, CreatedAt: t.UpdatedAt, UpdatedAt: t.UpdatedAt})
+		if err := s.Repo.AddDeadLetter(persistCtx, &domain.DeadLetter{ID: id.New(), EventID: e.ID, Reason: t.Error, Attempts: attempts, CreatedAt: t.UpdatedAt, UpdatedAt: t.UpdatedAt}); err != nil {
+			return err
+		}
+	}
+	if contextErr != nil {
+		return contextErr
 	}
 	return nil
 }

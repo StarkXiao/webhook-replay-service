@@ -32,7 +32,12 @@ func (p *Pool) loop() {
 		cancel()
 	}
 }
-func (p *Pool) Submit(t domain.DeliveryTask) {
-	p.Jobs <- t
+func (p *Pool) Submit(ctx context.Context, t domain.DeliveryTask) bool {
+	select {
+	case p.Jobs <- t:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 func (p *Pool) Close() { close(p.Jobs); p.wg.Wait() }
