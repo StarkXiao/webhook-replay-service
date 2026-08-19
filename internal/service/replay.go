@@ -38,8 +38,21 @@ func (s *Service) ReplayBatch(ctx context.Context, in ReplayRequest) (ReplayResu
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				mu.Lock()
+				out.Failed++
+				mu.Unlock()
+				return
+			}
 			defer func() { <-sem }()
+			if ctx.Err() != nil {
+				mu.Lock()
+				out.Failed++
+				mu.Unlock()
+				return
+			}
 			at := time.Time{}
 			if in.At != nil {
 				at = *in.At
@@ -56,6 +69,9 @@ func (s *Service) ReplayBatch(ctx context.Context, in ReplayRequest) (ReplayResu
 		}()
 	}
 	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return out, err
+	}
 	return out, nil
 }
 func (s *Service) CancelTask(ctx context.Context, taskID string) error {
@@ -66,16 +82,37 @@ func (s *Service) CancelTask(ctx context.Context, taskID string) error {
 	if err = t.Transition(domain.Cancelled); err != nil {
 		return err
 	}
+	e, err := s.Repo.GetEvent(ctx, t.EventID)
+	if err != nil {
+		return err
+	}
 	t.UpdatedAt = s.Clock.Now()
-	return s.Repo.UpdateTask(ctx, t)
+	if err := s.Repo.UpdateTask(ctx, t); err != nil {
+		return err
+	}
+	e.Status = domain.Cancelled
+	e.UpdatedAt = t.UpdatedAt
+	return s.Repo.UpdateEvent(ctx, e)
 }
 func (s *Service) RetryTask(ctx context.Context, taskID string) error {
 	t, err := s.Repo.GetTask(ctx, taskID)
 	if err != nil {
 		return err
 	}
+	if t.Status != domain.Failed {
+		return ErrConflict
+	}
+	e, err := s.Repo.GetEvent(ctx, t.EventID)
+	if err != nil {
+		return err
+	}
 	t.Status = domain.Retrying
 	t.ScheduledAt = s.Clock.Now()
 	t.UpdatedAt = s.Clock.Now()
-	return s.Repo.UpdateTask(ctx, t)
+	if err := s.Repo.UpdateTask(ctx, t); err != nil {
+		return err
+	}
+	e.Status = domain.Retrying
+	e.UpdatedAt = t.UpdatedAt
+	return s.Repo.UpdateEvent(ctx, e)
 }

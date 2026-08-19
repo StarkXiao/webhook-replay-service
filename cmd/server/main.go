@@ -35,8 +35,26 @@ func main() {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 	mux.HandleFunc("/ready", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
-	mux.HandleFunc("/api/v1/webhooks", h.Webhooks)
-	mux.HandleFunc("/api/v1/events", h.Events)
+	mux.HandleFunc("/api/v1/webhooks", method(http.MethodPost, h.Webhooks))
+	mux.HandleFunc("/api/v1/events", method(http.MethodGet, h.Events))
+	mux.HandleFunc("/api/v1/events/replay", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		h.ReplayBatch(w, r)
+	})
+	mux.HandleFunc("/api/v1/statistics", method(http.MethodGet, h.Statistics))
+	mux.HandleFunc("/api/v1/dead-letters", method(http.MethodGet, h.DeadLetters))
+	mux.HandleFunc("/api/v1/delivery-tasks/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		h.TaskAction(w, r)
+	})
 	mux.HandleFunc("/api/v1/events/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			h.Event(w, r)
@@ -44,6 +62,10 @@ func main() {
 		}
 		if r.Method == http.MethodPost && stringsHas(r.URL.Path, "/schedule") {
 			h.Schedule(w, r)
+			return
+		}
+		if r.Method == http.MethodPost && stringsHas(r.URL.Path, "/replay") {
+			h.Replay(w, r)
 			return
 		}
 		if r.Method != http.MethodGet {
@@ -88,3 +110,13 @@ func main() {
 }
 func stringsHas(s, x string) bool         { return len(s) >= len(x) && s[len(s)-len(x):] == x }
 func writeNotFound(w http.ResponseWriter) { http.Error(w, "not found", 404) }
+func method(allowed string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != allowed {
+			w.Header().Set("Allow", allowed)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		next(w, r)
+	}
+}
