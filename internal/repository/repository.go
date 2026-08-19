@@ -194,7 +194,10 @@ func (m *Memory) AddAttempt(_ context.Context, a *domain.DeliveryAttempt) error 
 func (m *Memory) Attempts(_ context.Context, i string) ([]domain.DeliveryAttempt, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.attempts[i], nil
+	src := m.attempts[i]
+	out := make([]domain.DeliveryAttempt, len(src))
+	copy(out, src)
+	return out, nil
 }
 func (m *Memory) AddDeadLetter(_ context.Context, d *domain.DeadLetter) error {
 	m.mu.Lock()
